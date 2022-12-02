@@ -1,0 +1,14 @@
+[package]
+name = "advent_2022"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "advent"
+path = "src/lib.rs"
+
+[dependencies]
+structopt = { version = "0.3", default-features = false }
+anyhow = "1.0"
