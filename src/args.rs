@@ -6,6 +6,9 @@ use structopt::StructOpt;
 pub struct Opt {
     #[structopt(long)]
     pub part2: bool,
+
+    #[structopt(long)]
+    pub compute: bool,
     /// Input file
     #[structopt(parse(from_os_str))]
     pub input: PathBuf,

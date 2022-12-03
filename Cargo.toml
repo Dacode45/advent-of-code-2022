@@ -12,3 +12,13 @@ path = "src/lib.rs"
 [dependencies]
 structopt = { version = "0.3", default-features = false }
 anyhow = "1.0"
+bevy = { version = "0.9", features = ["dynamic"]}
+itertools = "0.10"
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
