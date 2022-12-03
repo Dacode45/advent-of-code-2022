@@ -9,7 +9,7 @@ use bevy::{
         render_asset::RenderAssets,
         render_graph::{self, RenderGraph},
         render_resource::*,
-        renderer::{RenderContext, RenderDevice},
+        renderer::{RenderContext, RenderDevice, RenderQueue},
         RenderApp, RenderStage,
     },
 };
@@ -34,7 +34,8 @@ fn main() {
     println!("Solution [{}]: {}", if opt.part2 { 2 } else { 1 }, solution);
 }
 
-const SIZE: (u32, u32) = (320, 180);
+const MAX_INPUT_SIZE: usize = 10000;
+const SIZE: (u32, u32) = (100, 100);
 const WORKGROUP_SIZE: u32 = 8;
 
 fn app(opt: &args::Opt) {
@@ -43,14 +44,21 @@ fn app(opt: &args::Opt) {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .insert_resource(InputFile(content))
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            window: WindowDescriptor {
-                // uncomment for unthrottled FPS
-                // present_mode: bevy::window::PresentMode::AutoNoVsync,
-                ..default()
-            },
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    watch_for_changes: true,
+                    ..default()
+                })
+                .set(WindowPlugin {
+                    window: WindowDescriptor {
+                        // uncomment for unthrottled FPS
+                        // present_mode: bevy::window::PresentMode::AutoNoVsync,
+                        ..default()
+                    },
+                    ..default()
+                }),
+        )
         .add_plugin(Day1ComputePlugin)
         .add_startup_system(setup)
         .run();
@@ -59,43 +67,47 @@ fn app(opt: &args::Opt) {
 #[derive(Resource)]
 pub struct InputFile(String);
 
-fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, input: Res<InputFile>) {
-    // Convert numbers into [u4;8]
+#[derive(Resource, Default)]
+pub struct ExtractedInputFile(String);
 
-    let content = input.0.clone();
+impl ExtractResource for ExtractedInputFile {
+    type Source = InputFile;
 
-    let mut as_bytes: Vec<_> = content
-        .lines()
-        .map(|line| {
-            if line.is_empty() {
-                [0; 4]
-            } else {
-                let as_num: i32 = line.parse().unwrap();
-                let as_bytes = as_num.to_be_bytes();
-                if as_bytes[0] != 0 {
-                    panic!("Can't fit {} into 4 bytes got {:?}", as_num, as_bytes);
-                }
-                let shifted = [as_bytes[1], as_bytes[2], as_bytes[3], 255];
-                shifted
-            }
-        })
-        .flatten()
-        .collect();
-
-    let size = SIZE.0 * SIZE.1;
-    if as_bytes.len() > size as usize {
-        panic!("Need to increase the size of the images")
+    fn extract_resource(source: &Self::Source) -> Self {
+        ExtractedInputFile(source.0.clone())
     }
-    as_bytes.resize(size as usize * 4, 0);
+}
 
-    let mut image = Image::new(
+// write the extracted input to the right buffer
+fn prepare_input(
+    input: Res<ExtractedInputFile>,
+    buffers: ResMut<SolutionBuffers>,
+    render_queue: Res<RenderQueue>,
+) {
+    if input.is_changed() {
+        let nums = input
+            .0
+            .lines()
+            .map(|line| line.parse::<u32>().unwrap_or(0))
+            .collect::<Vec<_>>();
+
+        render_queue.write_buffer(
+            &buffers.input_buffer,
+            0,
+            bevy::core::cast_slice(nums.as_slice()),
+        );
+    }
+}
+
+fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let mut image = Image::new_fill(
         Extent3d {
             width: SIZE.0,
             height: SIZE.1,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
-        as_bytes,
+        &[0, 0, 0, 255],
         TextureFormat::Rgba8Unorm,
     );
     image.texture_descriptor.usage =
@@ -104,7 +116,7 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, input: Res<I
 
     commands.spawn(SpriteBundle {
         sprite: Sprite {
-            custom_size: Some(Vec2::new(640.0, 320.0)),
+            custom_size: Some(Vec2::new(500.0, 500.0)),
             ..default()
         },
         texture: image.clone(),
@@ -119,12 +131,34 @@ pub struct Day1ComputePlugin;
 
 impl Plugin for Day1ComputePlugin {
     fn build(&self, app: &mut App) {
-        // Extract the game of life image resource from the main world into the render world
-        // for operation on by the compute shader and display on the sprite.
+        let render_device = app.world.resource::<RenderDevice>();
+
+        let input_buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Input File Buffer"),
+            size: (std::mem::size_of::<u32>() * MAX_INPUT_SIZE) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let output_buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Output File Buffer"),
+            size: (std::mem::size_of::<u32>() * MAX_INPUT_SIZE) as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let solution_buffers = SolutionBuffers {
+            input_buffer: input_buffer,
+            output_buffer: output_buffer,
+        };
+
         app.add_plugin(ExtractResourcePlugin::<Day1Image>::default());
+        app.add_plugin(ExtractResourcePlugin::<ExtractedInputFile>::default());
+
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .init_resource::<Day1Pipeline>()
+            .insert_resource(solution_buffers)
+            .add_system_to_stage(RenderStage::Prepare, prepare_input)
             .add_system_to_stage(RenderStage::Queue, queue_bind_group);
 
         let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
@@ -136,6 +170,12 @@ impl Plugin for Day1ComputePlugin {
             )
             .unwrap();
     }
+}
+
+#[derive(Resource)]
+struct SolutionBuffers {
+    input_buffer: Buffer,
+    output_buffer: Buffer,
 }
 
 #[derive(Resource, Clone, Deref, ExtractResource)]
@@ -150,15 +190,26 @@ fn queue_bind_group(
     gpu_images: Res<RenderAssets<Image>>,
     game_of_life_image: Res<Day1Image>,
     render_device: Res<RenderDevice>,
+    buffers: Res<SolutionBuffers>,
 ) {
     let view = &gpu_images[&game_of_life_image.0];
     let bind_group = render_device.create_bind_group(&BindGroupDescriptor {
         label: None,
         layout: &pipeline.texture_bind_group_layout,
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: BindingResource::TextureView(&view.texture_view),
-        }],
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&view.texture_view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: BindingResource::Buffer(buffers.input_buffer.as_entire_buffer_binding()),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: BindingResource::Buffer(buffers.output_buffer.as_entire_buffer_binding()),
+            },
+        ],
     });
     commands.insert_resource(Day1ImageBindGroup(bind_group));
 }
@@ -177,16 +228,38 @@ impl FromWorld for Day1Pipeline {
                 .resource::<RenderDevice>()
                 .create_bind_group_layout(&BindGroupLayoutDescriptor {
                     label: None,
-                    entries: &[BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::StorageTexture {
-                            access: StorageTextureAccess::ReadWrite,
-                            format: TextureFormat::Rgba8Unorm,
-                            view_dimension: TextureViewDimension::D2,
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::StorageTexture {
+                                access: StorageTextureAccess::ReadWrite,
+                                format: TextureFormat::Rgba8Unorm,
+                                view_dimension: TextureViewDimension::D2,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
                 });
         let shader = world.resource::<AssetServer>().load("shaders/day1.wgsl");
         let mut pipeline_cache = world.resource_mut::<PipelineCache>();
@@ -249,7 +322,7 @@ impl render_graph::Node for Day1Node {
                 if let CachedPipelineState::Ok(_) =
                     pipeline_cache.get_compute_pipeline_state(pipeline.update_pipeline)
                 {
-                    self.state = Day1State::Update;
+                    // self.state = Day1State::Update;
                 }
             }
             Day1State::Update => {}
