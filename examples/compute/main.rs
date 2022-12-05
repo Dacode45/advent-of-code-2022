@@ -47,6 +47,7 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let image = images.add(image);
 
     commands.spawn(SpriteBundle {
+        transform: Transform::from_xyz(1000., 5000., 2000.),
         sprite: Sprite {
             custom_size: Some(Vec2::new(SIZE.0 as f32, SIZE.1 as f32)),
             ..default()
@@ -373,7 +374,7 @@ impl render_graph::Node for GradientNode {
                         panic!("{}", err.unwrap().to_string());
                     }
                 });
-                let device = device.wgpu_device();
+                let _device = device.wgpu_device();
                 // device.poll(bevy::wgpu::Maintain::Wait);
 
                 let data = slice.get_mapped_range();

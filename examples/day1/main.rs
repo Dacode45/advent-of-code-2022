@@ -46,6 +46,7 @@ fn app(opt: &args::Opt) {
         .insert_resource(InputFile(content))
         .add_plugins(
             DefaultPlugins
+                .set(ImagePlugin::default_nearest())
                 .set(AssetPlugin {
                     watch_for_changes: true,
                     ..default()
@@ -115,8 +116,9 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let image = images.add(image);
 
     commands.spawn(SpriteBundle {
+        transform: Transform::from_xyz(0., -500., 0.),
         sprite: Sprite {
-            custom_size: Some(Vec2::new(500.0, 500.0)),
+            custom_size: Some(Vec2::new(1000.0, 1000.0)),
             ..default()
         },
         texture: image.clone(),

@@ -1,19 +1,11 @@
 use advent::args;
-use anyhow::anyhow;
+
 use anyhow::Result;
 use bevy::{
     prelude::*,
-    render::{
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
-        render_asset::RenderAssets,
-        render_graph::{self, RenderGraph},
-        render_resource::*,
-        renderer::{RenderContext, RenderDevice},
-        RenderApp, RenderStage,
-    },
 };
 use itertools::Itertools;
-use std::borrow::Cow;
+
 use std::collections::HashMap;
 use structopt::StructOpt;
 
@@ -45,7 +37,7 @@ fn solve(opt: &advent::args::Opt) -> Result<(std::collections::HashMap<&'static 
     }
 }
 
-fn app(Opt: &advent::args::Opt) -> Result<()> {
+fn app(_Opt: &advent::args::Opt) -> Result<()> {
     todo!("part 2")
 }
 
@@ -104,7 +96,7 @@ impl RPS {
     }
 
     fn result(self, other: RPS) -> i32 {
-        use RPS::*;
+        
 
         match (self, other) {
             (x, y) if x == y => 3 + self.value(),
@@ -178,7 +170,7 @@ impl Rounds {
 
     fn being_extra(&self) -> (HashMap<String, RPS>, i32) {
         use RPS::*;
-        let mut candidates = [Rock, Paper, Scissors];
+        let candidates = [Rock, Paper, Scissors];
         let permutations = (0..3).permutations(3);
 
         // let mut mapping = HashMap::<&str, _>::new();
